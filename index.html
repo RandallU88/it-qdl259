@@ -33,11 +33,14 @@
   <header class="bar vbar">
     <button id="back" class="icon" aria-label="Back">&#x2039;</button>
     <div class="vtitle"><div id="vname"></div><div id="vsub" class="muted"></div></div>
+    <button id="vpdf" class="pill" hidden>View PDF</button>
+    <button id="vlist" class="pill" hidden>List</button>
     <button id="zout" class="icon" aria-label="Zoom out">&minus;</button>
     <button id="zfit" class="pill" aria-label="Fit width">Fit</button>
     <button id="zin" class="icon" aria-label="Zoom in">+</button>
     <button id="share" class="icon" aria-label="Share or download">&#x2191;</button>
   </header>
+  <main id="stops" hidden></main>
   <div id="pages"><div id="pagewrap"></div></div>
 </section>
 <script src="vendor/supabase.js"></script>

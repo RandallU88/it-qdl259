@@ -1,5 +1,5 @@
 import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
-import { findLinks } from "./links.js";
+import { findLinks, telHref, mapHref } from "./links.js";
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 const $ = (id) => document.getElementById(id);
 const api = window.makeAdapter(window.IV_CONFIG);
@@ -55,13 +55,56 @@ async function openItem(it, push = true) {
   $("vname").textContent = l.t; $("vsub").textContent = l.s;
   $("list").hidden = true; $("viewer").hidden = false;
   if (push) history.pushState({ id: it.id }, "", "#" + encodeURIComponent(it.id));
-  $("pagewrap").innerHTML = ""; $("pages").scrollTo(0, 0);
-  const url = await api.fileUrl(it);
+  pdfDoc?.destroy(); pdfDoc = null; renderTok++;
+  $("pagewrap").innerHTML = ""; $("stops").replaceChildren(); $("pages").scrollTo(0, 0);
+  if (it.stops?.days?.length) return showStops(it);
+  await showPdf(it);
+}
+function setMode(list) {
+  $("stops").hidden = !list; $("pages").hidden = list;
+  ["zout", "zfit", "zin"].forEach((id) => ($(id).hidden = list));
+  $("vpdf").hidden = !list; $("vlist").hidden = list || !current?.stops?.days?.length;
+}
+async function showPdf(it) {
+  setMode(false);
+  const url = await api.fileUrl(it); if (current !== it) return;
   pdfDoc = await pdfjsLib.getDocument({ url }).promise;
   const p1 = await pdfDoc.getPage(1);
   fitScale = Math.min($("pages").clientWidth - 16, 1000) / p1.getViewport({ scale: 1 }).width;
   zoom = 1; await renderPages();
 }
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const phoneText = (p) => p.replace(/\s*(?:x|ext\.?)\s*(\d+)$/i, " ext $1");
+function showStops(it) {
+  setMode(true);
+  const box = $("stops"); box.replaceChildren(); box.scrollTo(0, 0);
+  const t = todayISO(), [ty, tm, td] = t.split("-").map(Number), tShort = `${tm}/${td}/${String(ty).slice(2)}`;
+  const multi = it.stops.days.length > 1; let todayHead = null, n = 0;
+  for (const d of it.stops.days) {
+    if (multi || d.day) {
+      const h = el("h2", "dayh", [d.day, d.date].filter(Boolean).join(" ") + "  \u00b7  " + d.stops.length + (d.stops.length === 1 ? " stop" : " stops"));
+      if (d.date === tShort) { h.classList.add("now"); todayHead = h; }
+      box.append(h);
+    }
+    for (const s of d.stops) {
+      const c = el("article", "stop"); n++;
+      const top = el("div", "stop-top");
+      top.append(el("span", "num", String(n)), el("div", "co", s.company));
+      c.append(top);
+      const meta = el("div", "meta");
+      if (s.status) meta.append(el("span", "st st-" + s.status.toLowerCase().replace(/[^a-z]/g, ""), s.status));
+      if (s.time) meta.append(el("span", "time" + (/\d/.test(s.time) ? " fixed" : ""), s.time === "Any" ? "Any time" : s.time === "CC" ? "Cold call" : s.time));
+      c.append(meta);
+      if (s.contact) c.append(el("div", "contact", s.contact));
+      if (s.address) { const a = el("a", "act addr"); a.href = mapHref(s.address); a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "ic", "\u{1F4CD}"), el("span", "", s.address)); c.append(a); }
+      if (s.phone) { const a = el("a", "act tel"); a.href = telHref(s.phone); a.append(el("span", "ic", "\u{1F4DE}"), el("span", "", phoneText(s.phone))); c.append(a); }
+      box.append(c);
+    }
+  }
+  if (todayHead && multi) requestAnimationFrame(() => todayHead.scrollIntoView({ block: "start" }));
+}
+$("vpdf").onclick = () => current && showPdf(current);
+$("vlist").onclick = () => current && (pdfDoc?.destroy(), pdfDoc = null, renderTok++, showStops(current));
 async function renderPages() {
   const tok = ++renderTok, wrap = $("pagewrap"), dpr = Math.min(window.devicePixelRatio || 1, 3);
   wrap.style.transform = "";
@@ -128,7 +171,7 @@ $("share").onclick = async () => {
   } catch (e) { if (e.name === "AbortError") return; }
   const a = document.createElement("a"); a.href = url; a.download = current.name; a.click();
 };
-window.addEventListener("resize", () => { if (pdfDoc) pdfDoc.getPage(1).then((p) => { fitScale = Math.min($("pages").clientWidth - 16, 1000) / p.getViewport({ scale: 1 }).width; renderPages(); }); });
+window.addEventListener("resize", () => { if (pdfDoc && !$("pages").hidden) pdfDoc.getPage(1).then((p) => { fitScale = Math.min($("pages").clientWidth - 16, 1000) / p.getViewport({ scale: 1 }).width; renderPages(); }); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); renderList(); } });
 window.addEventListener("focus", refresh);
 setInterval(refresh, 60000);
@@ -150,3 +193,6 @@ async function boot() {
 window.__iv = { get index() { return index; }, get zoom() { return zoom; } };
 start();
 if (api.needsLogin) { const lo = $("logout"); lo.hidden = false; lo.onclick = async () => { await api.logout(); location.replace(location.pathname); }; }
+(() => { const s = $("stops"); let sx = null;
+  s.addEventListener("touchstart", (e) => { sx = e.touches.length === 1 && e.touches[0].clientX < 24 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, { passive: true });
+  s.addEventListener("touchend", (e) => { if (sx) { const t = e.changedTouches[0]; if (t.clientX - sx[0] > 80 && Math.abs(t.clientY - sx[1]) < 60) history.back(); sx = null; } }); })();
