@@ -23,9 +23,9 @@ function SupabaseAdapter(cfg) {
     },
     async logout() { await client().auth.signOut(); },
     async listIndex() {
-      const { data, error } = await client().storage.from(cfg.bucket).download("index.json");
+      const { data, error } = await client().from("itinerary_index").select("data").eq("id", 1).maybeSingle();
       if (error) throw error;
-      return JSON.parse(await data.text());
+      return data ? data.data : { generated: null, items: [] };
     },
     async fileUrl(item) {
       const { data, error } = await client().storage.from(cfg.bucket).createSignedUrl(item.file, 300);
