@@ -32,3 +32,9 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);
 .login h1{margin:0 0 6px}.login label{display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--mu)}
 .login input{font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx)}
 .login button{padding:12px;background:var(--ac);color:#04111d;font-weight:700;border:0}
+#pagewrap .pg{position:relative;flex:none}
+.links{position:absolute;inset:0}
+.lk{position:absolute;display:block;border-bottom:1.5px solid rgba(0,102,204,.75);background:rgba(0,122,255,.08);border-radius:2px}
+.lk.phone{border-bottom-color:rgba(20,140,60,.8);background:rgba(40,180,80,.09)}
+.lk:active{background:rgba(0,122,255,.3)}
+.lk::after{content:"";position:absolute;left:-2px;right:-2px;top:-7px;bottom:-7px}

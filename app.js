@@ -1,4 +1,5 @@
 import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+import { findLinks } from "./links.js";
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 const $ = (id) => document.getElementById(id);
 const api = window.makeAdapter(window.IV_CONFIG);
@@ -72,7 +73,20 @@ async function renderPages() {
     c.width = Math.floor(vp.width * px); c.height = Math.floor(vp.height * px);
     c.style.width = Math.floor(vp.width) + "px"; c.style.height = Math.floor(vp.height) + "px";
     await page.render({ canvasContext: c.getContext("2d"), viewport: page.getViewport({ scale: scale * px }) }).promise;
-    if (tok !== renderTok) return; frag.push(c);
+    if (tok !== renderTok) return;
+    const pg = document.createElement("div"); pg.className = "pg"; pg.style.width = c.style.width; pg.style.height = c.style.height;
+    const ov = document.createElement("div"); ov.className = "links";
+    try {
+      page._links ||= findLinks((await page.getTextContent()).items);
+      for (const l of page._links) {
+        const [x1, y1, x2, y2] = vp.convertToViewportRectangle(l.rect), a = document.createElement("a");
+        a.href = l.href; a.className = "lk " + l.type; a.title = (l.type === "phone" ? "Call " : "Open in Maps: ") + l.text;
+        a.setAttribute("aria-label", a.title); if (l.type === "addr") { a.target = "_blank"; a.rel = "noopener"; }
+        Object.assign(a.style, { left: Math.min(x1, x2) + "px", top: Math.min(y1, y2) + "px", width: Math.abs(x2 - x1) + "px", height: Math.abs(y2 - y1) + "px" });
+        ov.append(a);
+      }
+    } catch (e) { console.warn("link detection failed", e); }
+    if (tok !== renderTok) return; pg.append(c, ov); frag.push(pg);
   }
   wrap.replaceChildren(...frag); wrap.dataset.zoom = zoom.toFixed(2);
 }
