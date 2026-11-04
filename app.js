@@ -112,10 +112,12 @@ async function renderPages() {
   for (let n = 1; n <= pdfDoc.numPages; n++) {
     const page = await pdfDoc.getPage(n); if (tok !== renderTok) return;
     const vp = page.getViewport({ scale }), c = document.createElement("canvas");
-    const px = Math.min(dpr, 4096 / vp.width); // cap canvas size for iOS memory
-    c.width = Math.floor(vp.width * px); c.height = Math.floor(vp.height * px);
-    c.style.width = Math.floor(vp.width) + "px"; c.style.height = Math.floor(vp.height) + "px";
-    await page.render({ canvasContext: c.getContext("2d"), viewport: page.getViewport({ scale: scale * px }) }).promise;
+    const cw = Math.round(vp.width), ch = Math.round(vp.height);
+    const px = Math.max(1, Math.min(dpr, 4096 / cw, Math.sqrt(16e6 / (cw * ch)))); // iOS canvas limits
+    c.width = Math.round(cw * px); c.height = Math.round(ch * px);
+    c.style.width = cw + "px"; c.style.height = ch + "px";
+    const ctx = c.getContext("2d", { alpha: false });
+    await page.render({ canvasContext: ctx, viewport: vp, transform: [c.width / vp.width, 0, 0, c.height / vp.height, 0, 0] }).promise;
     if (tok !== renderTok) return;
     const pg = document.createElement("div"); pg.className = "pg"; pg.style.width = c.style.width; pg.style.height = c.style.height;
     const ov = document.createElement("div"); ov.className = "links";
@@ -171,6 +173,7 @@ $("share").onclick = async () => {
   } catch (e) { if (e.name === "AbortError") return; }
   const a = document.createElement("a"); a.href = url; a.download = current.name; a.click();
 };
+let _rz; window.addEventListener("orientationchange", () => window.dispatchEvent(new Event("resize")));
 window.addEventListener("resize", () => { if (pdfDoc && !$("pages").hidden) pdfDoc.getPage(1).then((p) => { fitScale = Math.min($("pages").clientWidth - 16, 1000) / p.getViewport({ scale: 1 }).width; renderPages(); }); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); renderList(); } });
 window.addEventListener("focus", refresh);
