@@ -68,27 +68,29 @@ function SupabaseAdapter(cfg) {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("not signed in");
       const patch = { [field]: !!value, updated_at: new Date().toISOString() };
+      const pick = (r) => ({ seen: !!r.seen, quoted: !!r.quoted, ordered: !!r.ordered });
       const upd = await sb.from("stop_checks").update(patch)
         .eq("user_id", uid).eq("stop_date", date).eq("company", company)
-        .select("seen,quoted,ordered").maybeSingle();
+        .select("seen,quoted,ordered");
       if (upd.error) throw upd.error;
-      if (upd.data) return { seen: !!upd.data.seen, quoted: !!upd.data.quoted, ordered: !!upd.data.ordered };
+      if (upd.data && upd.data.length) return pick(upd.data[0]);
       const row = { ...emptyCheck(), [field]: !!value };
       const ins = await sb.from("stop_checks").insert({
         user_id: uid, stop_date: date, company, ...row, updated_at: patch.updated_at,
-      }).select("seen,quoted,ordered").maybeSingle();
+      }).select("seen,quoted,ordered");
       if (ins.error) {
         if (ins.error.code === "23505") {
           const retry = await sb.from("stop_checks").update(patch)
             .eq("user_id", uid).eq("stop_date", date).eq("company", company)
-            .select("seen,quoted,ordered").maybeSingle();
+            .select("seen,quoted,ordered");
           if (retry.error) throw retry.error;
-          if (!retry.data) throw new Error("could not save check");
-          return { seen: !!retry.data.seen, quoted: !!retry.data.quoted, ordered: !!retry.data.ordered };
+          if (!retry.data || !retry.data.length) throw new Error("could not save check");
+          return pick(retry.data[0]);
         }
         throw ins.error;
       }
-      return { seen: !!ins.data.seen, quoted: !!ins.data.quoted, ordered: !!ins.data.ordered };
+      if (!ins.data || !ins.data.length) throw new Error("could not save check");
+      return pick(ins.data[0]);
     },
   };
 }
