@@ -53,3 +53,11 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);
 .contact{font-size:18px;margin:8px 0 0 38px}
 .act{display:flex;gap:10px;align-items:center;margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--ac);text-decoration:none;font-size:18px;line-height:1.3;min-height:48px}
 .act.tel{color:#6fdc8c}.act:active{opacity:.6}.ic{flex:none;font-size:18px}
+
+.checks{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 0 38px}
+.chk{display:flex;align-items:center;gap:8px;flex:1 1 88px;min-height:44px;padding:8px 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line);font-size:15px;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.chk input{appearance:none;-webkit-appearance:none;width:24px;height:24px;margin:0;flex:none;border:2px solid #6a7583;border-radius:7px;background:#111418;display:grid;place-content:center}
+.chk input:checked{background:var(--ac);border-color:var(--ac)}
+.chk input:checked::after{content:"";width:6px;height:11px;border:solid #04111d;border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.chk:has(input:checked){border-color:var(--ac);background:var(--today)}
+.check-err{color:#ff8a8a;font-size:13px;margin:8px 0 0 38px}

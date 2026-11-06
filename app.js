@@ -75,19 +75,91 @@ async function showPdf(it) {
 }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const phoneText = (p) => p.replace(/\s*(?:x|ext\.?)\s*(\d+)$/i, " ext $1");
-function showStops(it) {
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function parseStopDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!m) return null;
+  let y = Number(m[3]); if (y < 100) y += 2000;
+  return y + "-" + String(Number(m[1])).padStart(2, "0") + "-" + String(Number(m[2])).padStart(2, "0");
+}
+function addDaysISO(iso, n) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
+function stopDayISO(d, it) {
+  const parsed = parseStopDate(d?.date);
+  if (parsed) return parsed;
+  if (it?.kind === "daily" && it.start) return it.start;
+  if (it?.start && d?.day) {
+    const want = WEEKDAYS.indexOf(d.day);
+    if (want >= 0) {
+      const end = it.end || addDaysISO(it.start, 6);
+      for (let cur = it.start, i = 0; cur <= end && i < 14; i++, cur = addDaysISO(cur, 1)) {
+        const [y, m, dd] = cur.split("-").map(Number);
+        if (new Date(Date.UTC(y, m - 1, dd)).getUTCDay() === want) return cur;
+      }
+    }
+  }
+  return it?.start || "";
+}
+const checkKey = (date, company) => JSON.stringify([date, company]);
+function flashCheckErr(card, msg) {
+  let err = card.querySelector(".check-err");
+  if (!err) { err = el("p", "check-err"); card.append(err); }
+  err.textContent = msg;
+  clearTimeout(err._t);
+  err._t = setTimeout(() => err.remove(), 3500);
+}
+function addChecks(card, date, company, checks) {
+  const row = el("div", "checks");
+  const key = checkKey(date, company);
+  const state = checks[key] || (checks[key] = { seen: false, quoted: false, ordered: false });
+  for (const field of ["seen", "quoted", "ordered"]) {
+    const lab = el("label", "chk");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = !!state[field];
+    const pretty = field[0].toUpperCase() + field.slice(1);
+    input.setAttribute("aria-label", pretty);
+    lab.append(input, document.createTextNode(pretty));
+    input.addEventListener("change", async () => {
+      const val = input.checked;
+      try {
+        await api.setCheck(date, company, field, val);
+        state[field] = val;
+      } catch (e) {
+        input.checked = !val;
+        console.warn(e);
+        flashCheckErr(card, "Could not save. Try again.");
+      }
+    });
+    row.append(lab);
+  }
+  card.append(row);
+}
+async function showStops(it) {
   setMode(true);
   const box = $("stops"); box.replaceChildren(); box.scrollTo(0, 0);
+  let checks = {};
+  try { checks = await api.loadChecks() || {}; } catch (e) { console.warn(e); }
+  if (current !== it) return;
   const t = todayISO(), [ty, tm, td] = t.split("-").map(Number), tShort = `${tm}/${td}/${String(ty).slice(2)}`;
   const multi = it.stops.days.length > 1; let todayHead = null, n = 0;
   for (const d of it.stops.days) {
+    const dateISO = stopDayISO(d, it);
     if (multi || d.day) {
       const h = el("h2", "dayh", [d.day, d.date].filter(Boolean).join(" ") + "  \u00b7  " + d.stops.length + (d.stops.length === 1 ? " stop" : " stops"));
-      if (d.date === tShort) { h.classList.add("now"); todayHead = h; }
+      if (dateISO === t || d.date === tShort) { h.classList.add("now"); todayHead = h; }
       box.append(h);
     }
     for (const s of d.stops) {
       const c = el("article", "stop"); n++;
+      c.dataset.date = dateISO;
+      c.dataset.company = s.company;
       const top = el("div", "stop-top");
       top.append(el("span", "num", String(n)), el("div", "co", s.company));
       c.append(top);
@@ -98,6 +170,7 @@ function showStops(it) {
       if (s.contact) c.append(el("div", "contact", s.contact));
       if (s.address) { const a = el("a", "act addr"); a.href = mapHref(s.address); a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "ic", "\u{1F4CD}"), el("span", "", s.address)); c.append(a); }
       if (s.phone) { const a = el("a", "act tel"); a.href = telHref(s.phone); a.append(el("span", "ic", "\u{1F4DE}"), el("span", "", phoneText(s.phone))); c.append(a); }
+      addChecks(c, dateISO, s.company, checks);
       box.append(c);
     }
   }
@@ -193,7 +266,7 @@ async function boot() {
   const id = decodeURIComponent(location.hash.slice(1)); const it = id && index?.items.find((i) => i.id === id);
   if (it) { history.replaceState(null, "", location.pathname + location.search); history.pushState({ id }, "", "#" + encodeURIComponent(id)); openItem(it, false); }
 }
-window.__iv = { get index() { return index; }, get zoom() { return zoom; } };
+window.__iv = { get index() { return index; }, get zoom() { return zoom; }, stopDayISO, parseStopDate, checkKey };
 start();
 if (api.needsLogin) { const lo = $("logout"); lo.hidden = false; lo.onclick = async () => { await api.logout(); location.replace(location.pathname); }; }
 (() => { const s = $("stops"); let sx = null;
