@@ -231,9 +231,79 @@ async function setZoom(z, cx, cy) {
   pages.addEventListener("touchstart", (e) => { sx = e.touches.length === 1 && e.touches[0].clientX < 24 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, { passive: true });
   pages.addEventListener("touchend", (e) => { if (sx) { const t = e.changedTouches[0]; if (t.clientX - sx[0] > 80 && Math.abs(t.clientY - sx[1]) < 60) history.back(); sx = null; } });
 })();
+
+// Visited-locations map (private storage; only after login)
+const MAP_INJECT = `<style id="iv-map-fit">html,body{width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important}
+.leaflet-container{width:100%!important;height:100%!important;touch-action:pan-x pan-y;}
+[id^="map_"]{width:100%!important;height:100%!important;}</style>`;
+let mapBlobUrl = null;
+function revokeMapBlob() {
+  if (mapBlobUrl) { URL.revokeObjectURL(mapBlobUrl); mapBlobUrl = null; }
+}
+function showMapUi(which) {
+  $("mapStatus").hidden = which !== "status";
+  $("mapFrame").hidden = which !== "frame";
+  $("mapImg").hidden = which !== "img";
+}
+async function openMap(push = true) {
+  $("list").hidden = true; $("viewer").hidden = true; $("mapview").hidden = false;
+  if (push) history.pushState({ map: true }, "", "#map");
+  showMapUi("status"); $("mapStatus").textContent = "Loading map…";
+  revokeMapBlob();
+  $("mapFrame").removeAttribute("src"); $("mapFrame").srcdoc = "";
+  $("mapImg").removeAttribute("src");
+  try {
+    let html = await api.mapHtml();
+    if (!html || html.length < 100) throw new Error("empty map");
+    // Folium may be served as text/plain; inject mobile full-height CSS before </head>
+    if (html.includes("</head>")) html = html.replace("</head>", MAP_INJECT + "</head>");
+    else html = MAP_INJECT + html;
+    // Prefer srcdoc so text/plain storage still renders as HTML; allow-scripts for Leaflet
+    $("mapFrame").srcdoc = html;
+    showMapUi("frame");
+    // Give Leaflet a moment; if iframe errors, fall back below via timeout check is hard, rely on catch for fetch
+  } catch (e) {
+    console.warn("map html failed", e);
+    try {
+      const url = await api.mapPngUrl();
+      $("mapImg").src = url;
+      showMapUi("img");
+      $("mapStatus").textContent = "";
+    } catch (e2) {
+      console.warn("map png failed", e2);
+      showMapUi("status");
+      $("mapStatus").textContent = "Could not load map. Pull to retry from the list.";
+    }
+  }
+}
+function closeMap() {
+  $("mapview").hidden = true; $("list").hidden = false;
+  revokeMapBlob();
+  $("mapFrame").srcdoc = ""; $("mapFrame").removeAttribute("src");
+  $("mapImg").removeAttribute("src");
+  showMapUi("status");
+}
+function leaveMap() {
+  closeMap();
+  if (location.hash.slice(1) === "map" || history.state?.map) {
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
 function closeViewer() { $("viewer").hidden = true; $("list").hidden = false; current = null; pdfDoc?.destroy(); pdfDoc = null; renderTok++; }
 $("back").onclick = () => (history.state?.id ? history.back() : (history.replaceState(null, "", location.pathname + location.search), closeViewer()));
-window.addEventListener("popstate", () => { const id = decodeURIComponent(location.hash.slice(1)); const it = index?.items.find((i) => i.id === id); it ? openItem(it, false) : closeViewer(); });
+$("mapBack").onclick = $("mapClose").onclick = () => leaveMap();
+$("mapBtn").onclick = () => openMap(true);
+window.addEventListener("popstate", () => {
+  const hash = decodeURIComponent(location.hash.slice(1));
+  if (hash === "map") return openMap(false);
+  if (!$("mapview").hidden) {
+    closeMap();
+    if (!hash) return;
+  }
+  const it = hash && index?.items.find((i) => i.id === hash);
+  if (it) openItem(it, false);
+  else if (!$("viewer").hidden) closeViewer();
+});
 $("zin").onclick = () => setZoom(zoom * 1.25);
 $("zout").onclick = () => setZoom(zoom / 1.25);
 $("zfit").onclick = () => setZoom(1);
@@ -262,8 +332,15 @@ async function start() {
   await boot();
 }
 async function boot() {
+  $("mapBtn").hidden = false;
   await refresh();
-  const id = decodeURIComponent(location.hash.slice(1)); const it = id && index?.items.find((i) => i.id === id);
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id === "map") {
+    history.replaceState(null, "", location.pathname + location.search);
+    history.pushState({ map: true }, "", "#map");
+    return openMap(false);
+  }
+  const it = id && index?.items.find((i) => i.id === id);
   if (it) { history.replaceState(null, "", location.pathname + location.search); history.pushState({ id }, "", "#" + encodeURIComponent(id)); openItem(it, false); }
 }
 window.__iv = { get index() { return index; }, get zoom() { return zoom; }, stopDayISO, parseStopDate, checkKey };

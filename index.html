@@ -8,10 +8,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Itineraries">
 <meta name="robots" content="noindex, nofollow">
-<link rel="manifest" href="manifest.webmanifest?v=5">
+<link rel="manifest" href="manifest.webmanifest?v=6">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <title>Itineraries</title>
 </head><body>
 <section id="login" class="screen" hidden>
@@ -25,6 +25,7 @@
 </section>
 <section id="list" class="screen">
   <header class="bar"><h1>Itineraries</h1><span id="updated" class="muted"></span>
+    <button id="mapBtn" class="pill" hidden type="button">Map</button>
     <button id="logout" class="pill" hidden>Sign out</button>
     <button id="refresh" class="icon" aria-label="Refresh">&#x21bb;</button></header>
   <main id="items"></main>
@@ -43,8 +44,20 @@
   <main id="stops" hidden></main>
   <div id="pages"><div id="pagewrap"></div></div>
 </section>
+<section id="mapview" class="screen" hidden>
+  <header class="bar">
+    <button id="mapBack" class="icon" aria-label="Back">&#x2039;</button>
+    <h1>Visited 2026</h1>
+    <button id="mapClose" class="pill" type="button">Close</button>
+  </header>
+  <div id="mapBody">
+    <p id="mapStatus" class="muted map-status">Loading map…</p>
+    <iframe id="mapFrame" title="Visited locations map" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" hidden></iframe>
+    <img id="mapImg" alt="Visited locations map" hidden>
+  </div>
+</section>
 <script src="vendor/supabase.js"></script>
 <script src="config.js"></script>
-<script src="data-adapter.js?v=5"></script>
-<script type="module" src="app.js?v=5"></script>
+<script src="data-adapter.js?v=6"></script>
+<script type="module" src="app.js?v=6"></script>
 </body></html>

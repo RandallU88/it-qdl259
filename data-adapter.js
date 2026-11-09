@@ -1,6 +1,8 @@
-// Data layer. Each adapter: needsLogin, login(u,p), logout(), listIndex(), fileUrl(item), loadChecks(), setCheck()
+// Data layer. Each adapter: needsLogin, login(u,p), logout(), listIndex(), fileUrl(item), loadChecks(), setCheck(), mapHtml(), mapPngUrl()
 const CHECK_FIELDS = ["seen", "quoted", "ordered"];
 const CHECKS_LS = "iv-stop-checks";
+const MAP_HTML_KEY = "maps/visited_locations.html";
+const MAP_PNG_KEY = "maps/visited_locations.png";
 const checkKey = (date, company) => JSON.stringify([date, company]);
 const emptyCheck = () => ({ seen: false, quoted: false, ordered: false });
 function readLocalChecks() {
@@ -30,6 +32,14 @@ const LocalAdapter = {
     all[k] = row;
     writeLocalChecks(all);
     return row;
+  },
+  async mapHtml() {
+    const r = await fetch("data/maps/visited_locations.html?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error("map html " + r.status);
+    return r.text();
+  },
+  async mapPngUrl() {
+    return "data/maps/visited_locations.png?t=" + Date.now();
   },
 };
 // Supabase mode: expects supabase-js vendored at vendor/supabase.js, a private bucket containing
@@ -91,6 +101,16 @@ function SupabaseAdapter(cfg) {
       }
       if (!ins.data || !ins.data.length) throw new Error("could not save check");
       return pick(ins.data[0]);
+    },
+    async mapHtml() {
+      const { data, error } = await client().storage.from(cfg.bucket).download(MAP_HTML_KEY);
+      if (error) throw error;
+      return await data.text();
+    },
+    async mapPngUrl() {
+      const { data, error } = await client().storage.from(cfg.bucket).createSignedUrl(MAP_PNG_KEY, 300);
+      if (error) throw error;
+      return data.signedUrl;
     },
   };
 }
