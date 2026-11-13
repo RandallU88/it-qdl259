@@ -29,24 +29,68 @@ function row(it, cls, tag, tagNow) {
   b.onclick = () => openItem(it);
   return b;
 }
+// Week grouping (Mon-Sun, dates are local America/New_York ISO strings)
+const isoOf = (d) => d.toISOString().slice(0, 10);
+const addDays = (s, n) => { const x = pd(s); x.setUTCDate(x.getUTCDate() + n); return isoOf(x); };
+const mondayOf = (s) => addDays(s, -((pd(s).getUTCDay() + 6) % 7));
+const md = (s) => { const [, m, d] = s.split("-").map(Number); return m + "/" + d; };
+const openWeeks = new Map(); // user taps, keyed by week Monday; cleared when the current week changes
+let openFor = "", renderedDay = "";
+function weekPlan(items, t) {
+  const tw = mondayOf(t), groups = new Map();
+  for (const it of items) { const k = mondayOf(it.start); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+  const keys = [...groups.keys()].sort();
+  const focus = groups.has(tw) ? tw : (keys.find((k) => k > tw) || keys.filter((k) => k < tw).pop());
+  return { tw, groups, keys, focus };
+}
+function weekRange(k, list) {
+  const sun = addDays(k, 6);
+  let last = addDays(k, 4);
+  for (const it of list) for (const d of [it.start, it.end]) if (d && d > last) last = d > sun ? sun : d;
+  return md(k) + " \u2013 " + md(last);
+}
+function setWeekOpen(sec, open) {
+  sec.classList.toggle("open", open);
+  sec.querySelector(".wkhead").setAttribute("aria-expanded", String(open));
+  sec.querySelector(".wkbody").hidden = !open;
+}
 function renderList() {
   const box = $("items"); box.innerHTML = "";
-  const items = (index?.items || []).slice().sort((a, b) => b.start.localeCompare(a.start) || (a.kind === "daily" ? -1 : 1));
+  const t = todayISO(); renderedDay = t;
+  const items = (index?.items || []).slice().sort((a, b) => (a.kind === "week" ? 0 : 1) - (b.kind === "week" ? 0 : 1) || a.start.localeCompare(b.start) || (a.kind === "daily" ? -1 : 1));
+  $("updated").textContent = index?.generated ? "Updated " + new Date(index.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   if (!items.length) { box.innerHTML = '<p class="empty">No itineraries yet.</p>'; return; }
-  const t = todayISO();
-  const today = items.find((i) => i.kind === "daily" && i.start === t);
+  const { tw, groups, keys, focus } = weekPlan(items, t);
+  if (openFor !== tw) { openWeeks.clear(); openFor = tw; }
   const isCur = (i) => i.kind === "week" && i.start <= t && t <= i.end;
-  const sec = (name, list, f) => { if (!list.length) return; const h = document.createElement("h2"); h.textContent = name; box.append(h); list.forEach((i) => box.append(f(i))); };
-  if (today) sec("Today", [today], (i) => row(i, "today", "Today", true));
-  sec("Daily", items.filter((i) => i.kind === "daily" && i !== today), (i) => row(i, "", "Daily"));
-  sec("Week", items.filter((i) => i.kind !== "daily"), (i) => isCur(i) ? row(i, "curweek", "This week", true) : row(i, "", i.kind === "week" ? "Week" : "Sheet"));
-  $("updated").textContent = index.generated ? "Updated " + new Date(index.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  const mkRow = (i) => i.kind === "daily" && i.start === t ? row(i, "today", "Today", true)
+    : isCur(i) ? row(i, "curweek", "This week", true)
+    : row(i, "", i.kind === "daily" ? "Daily" : i.kind === "week" ? "Week" : "Sheet");
+  const group = (k) => {
+    const list = groups.get(k), sec = document.createElement("section");
+    sec.className = "wk" + (k === tw ? " cur" : k > tw ? " future" : " past"); sec.dataset.week = k;
+    const h = document.createElement("button"); h.type = "button"; h.className = "wkhead"; h.setAttribute("aria-controls", "wk-" + k);
+    h.innerHTML = '<span class="wkcaret" aria-hidden="true">&#x203a;</span><span class="wkt"></span><span class="wkn"></span>';
+    h.querySelector(".wkt").textContent = "Week of " + weekRange(k, list);
+    h.querySelector(".wkn").textContent = "(" + list.length + ")";
+    if (k === tw) { const tg = el("span", "tag now", "This week"); h.append(tg); }
+    const body = document.createElement("div"); body.className = "wkbody"; body.id = "wk-" + k;
+    list.forEach((i) => body.append(mkRow(i)));
+    h.onclick = () => { const o = !sec.classList.contains("open"); openWeeks.set(k, o); setWeekOpen(sec, o); };
+    sec.append(h, body);
+    setWeekOpen(sec, openWeeks.has(k) ? openWeeks.get(k) : k === focus);
+    return sec;
+  };
+  const sec = (name, ks) => { if (!ks.length) return; box.append(el("h2", "", name)); ks.forEach((k) => box.append(group(k))); };
+  sec(focus === tw ? "This week" : focus > tw ? "Next up" : "Most recent", [focus]);
+  sec("Upcoming", keys.filter((k) => k > tw && k !== focus));
+  sec("Earlier", keys.filter((k) => k < tw && k !== focus).reverse());
 }
 async function refresh() {
   try {
     const idx = await api.listIndex();
     const s = JSON.stringify(idx.items.map((i) => i.id + i.version));
-    index = idx; if (s !== sig) { sig = s; renderList(); } else $("updated").textContent = "Updated " + new Date(idx.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    index = idx; if (s !== sig || todayISO() !== renderedDay) { sig = s; renderList(); } else $("updated").textContent = "Updated " + new Date(idx.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   } catch (e) { console.warn(e); if (!index) $("items").innerHTML = '<p class="err">Could not load itineraries. Pull to retry.</p>'; }
 }
 // viewer
@@ -343,7 +387,7 @@ async function boot() {
   const it = id && index?.items.find((i) => i.id === id);
   if (it) { history.replaceState(null, "", location.pathname + location.search); history.pushState({ id }, "", "#" + encodeURIComponent(id)); openItem(it, false); }
 }
-window.__iv = { get index() { return index; }, get zoom() { return zoom; }, stopDayISO, parseStopDate, checkKey };
+window.__iv = { get index() { return index; }, weekPlan, mondayOf, get zoom() { return zoom; }, stopDayISO, parseStopDate, checkKey };
 start();
 if (api.needsLogin) { const lo = $("logout"); lo.hidden = false; lo.onclick = async () => { await api.logout(); location.replace(location.pathname); }; }
 (() => { const s = $("stops"); let sx = null;
