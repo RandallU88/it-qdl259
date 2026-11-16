@@ -79,3 +79,19 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);
 .wk.cur .wkhead{border-color:#3d6b8f}
 .wk.open .wkhead{margin-bottom:8px}
 .wkbody{padding-left:10px;border-left:2px solid var(--line);margin-left:8px}
+
+.miles{display:flex;align-items:flex-end;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin:0 0 12px}
+.miles-field{flex:1 1 110px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.miles-field span{font-size:12px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.05em}
+.miles-field input{font:inherit;font-size:18px;font-weight:600;min-height:44px;width:100%;padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--tx);appearance:textfield;-moz-appearance:textfield}
+.miles-field input::-webkit-outer-spin-button,.miles-field input::-webkit-inner-spin-button{appearance:none;-webkit-appearance:none;margin:0}
+.miles-field input:focus{outline:0;border-color:var(--ac)}
+.miles-out{flex:none;min-width:76px;padding:0 4px 2px}
+.miles-out .mu{display:block;font-size:12px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.miles-val{font-weight:700;font-size:18px;line-height:28px}
+.miles-out.bad .miles-val{color:#ff8a8a}
+.miles-err{color:#ff8a8a;font-size:13px;margin:4px 0 0;flex:1 0 100%}
+.trip-miles{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 12px;background:var(--today);border:1px solid var(--ac);border-radius:16px;padding:14px 16px;margin:0 0 14px}
+.trip-miles-label{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mu)}
+.trip-miles-val{font-size:22px;font-weight:700;flex:1}
+.trip-miles-sub{flex:1 0 100%;margin:0}

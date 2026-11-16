@@ -151,12 +151,111 @@ function stopDayISO(d, it) {
   return it?.start || "";
 }
 const checkKey = (date, company) => JSON.stringify([date, company]);
-function flashCheckErr(card, msg) {
-  let err = card.querySelector(".check-err");
-  if (!err) { err = el("p", "check-err"); card.append(err); }
+function flashErr(host, cls, msg) {
+  let err = host.querySelector("." + cls);
+  if (!err) { err = el("p", cls); host.append(err); }
   err.textContent = msg;
   clearTimeout(err._t);
   err._t = setTimeout(() => err.remove(), 3500);
+}
+const flashCheckErr = (card, msg) => flashErr(card, "check-err", msg);
+const flashMilesErr = (row, msg) => flashErr(row, "miles-err", msg);
+function parseOdo(v) {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function dayMiles(start, end) {
+  const a = parseOdo(start), b = parseOdo(end);
+  if (a == null || b == null) return null;
+  return b - a;
+}
+function fmtMiles(n) {
+  if (n == null) return "—";
+  const r = Math.round(n * 10) / 10;
+  const s = Number.isInteger(r) ? r.toLocaleString("en-US") : r.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return s + " mi";
+}
+function addMileageRow(parent, dateISO, store, onUpdate) {
+  const state = store[dateISO] || (store[dateISO] = { start: null, end: null });
+  const wrap = el("div", "miles");
+  wrap.dataset.date = dateISO;
+  const mk = (field, label) => {
+    const lab = el("label", "miles-field");
+    lab.append(el("span", "", label));
+    const input = document.createElement("input");
+    input.type = "number"; input.inputMode = "decimal"; input.min = "0"; input.step = "any";
+    input.setAttribute("aria-label", label);
+    if (state[field] != null) input.value = String(state[field]);
+    input.addEventListener("wheel", () => input.blur(), { passive: true });
+    lab.append(input);
+    return { field, input, lab };
+  };
+  const startF = mk("start", "Start odometer");
+  const endF = mk("end", "End odometer");
+  const out = el("div", "miles-out");
+  out.append(el("span", "mu", "Day"));
+  const outVal = el("div", "miles-val", "—");
+  outVal.setAttribute("aria-live", "polite");
+  out.append(outVal);
+  const read = () => ({ start: parseOdo(startF.input.value), end: parseOdo(endF.input.value) });
+  const paint = () => {
+    const { start, end } = read();
+    state.start = start; state.end = end;
+    const m = dayMiles(start, end);
+    outVal.textContent = fmtMiles(m);
+    out.classList.toggle("bad", m != null && m < 0);
+    onUpdate();
+  };
+  const last = { start: parseOdo(state.start), end: parseOdo(state.end) };
+  const save = async () => {
+    const { start, end } = read();
+    if (start === last.start && end === last.end) return;
+    const prev = { ...last };
+    last.start = start; last.end = end;
+    state.start = start; state.end = end;
+    paint();
+    try {
+      await api.setMileage(dateISO, start, end);
+    } catch (e) {
+      last.start = prev.start; last.end = prev.end;
+      state.start = prev.start; state.end = prev.end;
+      startF.input.value = prev.start != null ? String(prev.start) : "";
+      endF.input.value = prev.end != null ? String(prev.end) : "";
+      console.warn(e);
+      flashMilesErr(wrap, "Could not save. Try again.");
+      paint();
+    }
+  };
+  for (const f of [startF, endF]) {
+    f.input.addEventListener("input", paint);
+    f.input.addEventListener("change", save);
+    f.input.addEventListener("blur", save);
+  }
+  wrap.append(startF.lab, endF.lab, out);
+  parent.append(wrap);
+  paint();
+}
+function addTripTotal(parent, dates, store) {
+  const bar = el("div", "trip-miles");
+  const label = el("div", "trip-miles-label", "Trip total");
+  const val = el("div", "trip-miles-val", "—");
+  val.setAttribute("aria-live", "polite");
+  const sub = el("div", "trip-miles-sub muted");
+  bar.append(label, val, sub);
+  parent.append(bar);
+  const paint = () => {
+    let sum = 0, n = 0;
+    for (const d of dates) {
+      const row = store[d] || {};
+      const m = dayMiles(row.start, row.end);
+      if (m != null && m >= 0) { sum += m; n++; }
+    }
+    val.textContent = n ? fmtMiles(sum) : "—";
+    sub.textContent = dates.length > 1 ? (n ? n + " of " + dates.length + " days" : "Enter start and end for each day") : "";
+  };
+  paint();
+  return paint;
 }
 function addChecks(card, date, company, checks) {
   const row = el("div", "checks");
@@ -188,11 +287,14 @@ function addChecks(card, date, company, checks) {
 async function showStops(it) {
   setMode(true);
   const box = $("stops"); box.replaceChildren(); box.scrollTo(0, 0);
-  let checks = {};
+  let checks = {}, mileage = {};
   try { checks = await api.loadChecks() || {}; } catch (e) { console.warn(e); }
+  try { mileage = await api.loadMileage() || {}; } catch (e) { console.warn(e); }
   if (current !== it) return;
   const t = todayISO(), [ty, tm, td] = t.split("-").map(Number), tShort = `${tm}/${td}/${String(ty).slice(2)}`;
   const multi = it.stops.days.length > 1; let todayHead = null, n = 0;
+  const dates = it.stops.days.map((d) => stopDayISO(d, it));
+  const paintTotal = multi ? addTripTotal(box, dates, mileage) : () => {};
   for (const d of it.stops.days) {
     const dateISO = stopDayISO(d, it);
     if (multi || d.day) {
@@ -200,6 +302,7 @@ async function showStops(it) {
       if (dateISO === t || d.date === tShort) { h.classList.add("now"); todayHead = h; }
       box.append(h);
     }
+    addMileageRow(box, dateISO, mileage, paintTotal);
     for (const s of d.stops) {
       const c = el("article", "stop"); n++;
       c.dataset.date = dateISO;
@@ -387,7 +490,7 @@ async function boot() {
   const it = id && index?.items.find((i) => i.id === id);
   if (it) { history.replaceState(null, "", location.pathname + location.search); history.pushState({ id }, "", "#" + encodeURIComponent(id)); openItem(it, false); }
 }
-window.__iv = { get index() { return index; }, weekPlan, mondayOf, get zoom() { return zoom; }, stopDayISO, parseStopDate, checkKey };
+window.__iv = { get index() { return index; }, weekPlan, mondayOf, get zoom() { return zoom; }, stopDayISO, parseStopDate, checkKey, parseOdo, dayMiles, fmtMiles };
 start();
 if (api.needsLogin) { const lo = $("logout"); lo.hidden = false; lo.onclick = async () => { await api.logout(); location.replace(location.pathname); }; }
 (() => { const s = $("stops"); let sx = null;

@@ -1,6 +1,7 @@
-// Data layer. Each adapter: needsLogin, login(u,p), logout(), listIndex(), fileUrl(item), loadChecks(), setCheck(), mapHtml(), mapPngUrl()
+// Data layer. Each adapter: needsLogin, login(u,p), logout(), listIndex(), fileUrl(item), loadChecks(), setCheck(), loadMileage(), setMileage(), mapHtml(), mapPngUrl()
 const CHECK_FIELDS = ["seen", "quoted", "ordered"];
 const CHECKS_LS = "iv-stop-checks";
+const MILEAGE_LS = "iv-day-mileage";
 const MAP_HTML_KEY = "maps/visited_locations.html";
 const MAP_PNG_KEY = "maps/visited_locations.png";
 const checkKey = (date, company) => JSON.stringify([date, company]);
@@ -15,6 +16,22 @@ function rowsToMap(rows) {
   for (const r of rows || []) map[checkKey(r.stop_date, r.company)] = { seen: !!r.seen, quoted: !!r.quoted, ordered: !!r.ordered };
   return map;
 }
+function parseOdo(v) {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function readLocalMileage() {
+  try { return JSON.parse(localStorage.getItem(MILEAGE_LS) || "{}"); }
+  catch { return {}; }
+}
+function writeLocalMileage(all) { localStorage.setItem(MILEAGE_LS, JSON.stringify(all)); }
+function rowsToMileage(rows) {
+  const map = {};
+  for (const r of rows || []) map[r.trip_date] = { start: parseOdo(r.start_odometer), end: parseOdo(r.end_odometer) };
+  return map;
+}
+function pickMileage(r) { return { start: parseOdo(r.start_odometer), end: parseOdo(r.end_odometer) }; }
 const LocalAdapter = {
   needsLogin: false,
   async listIndex() {
@@ -31,6 +48,14 @@ const LocalAdapter = {
     const row = { ...emptyCheck(), ...(all[k] || {}), [field]: !!value };
     all[k] = row;
     writeLocalChecks(all);
+    return row;
+  },
+  async loadMileage() { return readLocalMileage(); },
+  async setMileage(date, start, end) {
+    const all = readLocalMileage();
+    const row = { start: parseOdo(start), end: parseOdo(end) };
+    all[date] = row;
+    writeLocalMileage(all);
     return row;
   },
   async mapHtml() {
@@ -70,6 +95,39 @@ function SupabaseAdapter(cfg) {
       const { data, error } = await client().from("stop_checks").select("stop_date,company,seen,quoted,ordered");
       if (error) throw error;
       return rowsToMap(data);
+    },
+    async loadMileage() {
+      const { data, error } = await client().from("day_mileage").select("trip_date,start_odometer,end_odometer");
+      if (error) throw error;
+      return rowsToMileage(data);
+    },
+    async setMileage(date, start, end) {
+      const sb = client();
+      const { data: sess } = await sb.auth.getSession();
+      const uid = sess?.session?.user?.id;
+      if (!uid) throw new Error("not signed in");
+      const row = { start_odometer: parseOdo(start), end_odometer: parseOdo(end), updated_at: new Date().toISOString() };
+      const upd = await sb.from("day_mileage").update(row)
+        .eq("user_id", uid).eq("trip_date", date)
+        .select("start_odometer,end_odometer");
+      if (upd.error) throw upd.error;
+      if (upd.data && upd.data.length) return pickMileage(upd.data[0]);
+      const ins = await sb.from("day_mileage").insert({
+        user_id: uid, trip_date: date, ...row,
+      }).select("start_odometer,end_odometer");
+      if (ins.error) {
+        if (ins.error.code === "23505") {
+          const retry = await sb.from("day_mileage").update(row)
+            .eq("user_id", uid).eq("trip_date", date)
+            .select("start_odometer,end_odometer");
+          if (retry.error) throw retry.error;
+          if (!retry.data || !retry.data.length) throw new Error("could not save mileage");
+          return pickMileage(retry.data[0]);
+        }
+        throw ins.error;
+      }
+      if (!ins.data || !ins.data.length) throw new Error("could not save mileage");
+      return pickMileage(ins.data[0]);
     },
     async setCheck(date, company, field, value) {
       if (!CHECK_FIELDS.includes(field)) throw new Error("invalid field");
