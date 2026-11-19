@@ -4,7 +4,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 const $ = (id) => document.getElementById(id);
 const api = window.makeAdapter(window.IV_CONFIG);
 const TZ = "America/New_York";
-let index = null, sig = "", current = null, pdfDoc = null, zoom = 1, fitScale = 1, renderTok = 0;
+let index = null, sig = "", current = null, pdfDoc = null, zoom = 1, fitScale = 1, renderTok = 0, listY = 0;
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+const saveListY = () => { if (!$("list").hidden) listY = window.scrollY; };
+const restoreListY = () => requestAnimationFrame(() => window.scrollTo(0, listY));
 
 // ?today=YYYY-MM-DD override for testing
 function todayISO() {
@@ -97,7 +100,7 @@ async function refresh() {
 async function openItem(it, push = true) {
   current = it; const l = label(it);
   $("vname").textContent = l.t; $("vsub").textContent = l.s;
-  $("list").hidden = true; $("viewer").hidden = false;
+  saveListY(); $("list").hidden = true; $("viewer").hidden = false; window.scrollTo(0, 0);
   if (push) history.pushState({ id: it.id }, "", "#" + encodeURIComponent(it.id));
   pdfDoc?.destroy(); pdfDoc = null; renderTok++;
   $("pagewrap").innerHTML = ""; $("stops").replaceChildren(); $("pages").scrollTo(0, 0);
@@ -105,6 +108,7 @@ async function openItem(it, push = true) {
   await showPdf(it);
 }
 function setMode(list) {
+  $("viewer").classList.toggle("pdf", !list); if (!list) window.scrollTo(0, 0);
   $("stops").hidden = !list; $("pages").hidden = list;
   ["zout", "zfit", "zin"].forEach((id) => ($(id).hidden = list));
   $("vpdf").hidden = !list; $("vlist").hidden = list || !current?.stops?.days?.length;
@@ -286,7 +290,7 @@ function addChecks(card, date, company, checks) {
 }
 async function showStops(it) {
   setMode(true);
-  const box = $("stops"); box.replaceChildren(); box.scrollTo(0, 0);
+  const box = $("stops"); box.replaceChildren(); window.scrollTo(0, 0);
   let checks = {}, mileage = {};
   try { checks = await api.loadChecks() || {}; } catch (e) { console.warn(e); }
   try { mileage = await api.loadMileage() || {}; } catch (e) { console.warn(e); }
@@ -321,7 +325,7 @@ async function showStops(it) {
       box.append(c);
     }
   }
-  if (todayHead && multi) requestAnimationFrame(() => todayHead.scrollIntoView({ block: "start" }));
+  if (todayHead && multi) requestAnimationFrame(() => { setHdr(); todayHead.scrollIntoView({ block: "start" }); });
 }
 $("vpdf").onclick = () => current && showPdf(current);
 $("vlist").onclick = () => current && (pdfDoc?.destroy(), pdfDoc = null, renderTok++, showStops(current));
@@ -368,7 +372,10 @@ async function setZoom(z, cx, cy) {
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   pages.addEventListener("touchstart", (e) => { if (e.touches.length === 2) { d0 = dist(e.touches); const r = pages.getBoundingClientRect(); mid = [(e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left, (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top]; s = 1; } }, { passive: true });
   pages.addEventListener("touchmove", (e) => { if (e.touches.length === 2 && d0) { e.preventDefault(); s = dist(e.touches) / d0; wrap.style.transformOrigin = `${pages.scrollLeft + mid[0]}px ${pages.scrollTop + mid[1]}px`; wrap.style.transform = `scale(${s})`; } }, { passive: false });
-  pages.addEventListener("touchend", (e) => { if (d0 && e.touches.length < 2) { d0 = 0; wrap.style.transformOrigin = "0 0"; if (Math.abs(s - 1) > 0.02) setZoom(zoom * s, mid[0], mid[1]); else wrap.style.transform = ""; } });
+  const pinchReset = () => { d0 = 0; wrap.style.transformOrigin = "0 0"; wrap.style.transform = ""; };
+  pages.addEventListener("touchcancel", pinchReset, { passive: true });
+  pages._pinchReset = pinchReset;
+  pages.addEventListener("touchend", (e) => { if (d0 && e.touches.length < 2) { d0 = 0; wrap.style.transformOrigin = "0 0"; if (Math.abs(s - 1) > 0.02) setZoom(zoom * s, mid[0], mid[1]); else wrap.style.transform = ""; } }, { passive: true });
   // Safari desktop trackpad pinch and ctrl+wheel
   ["gesturestart", "gesturechange"].forEach((ev) => pages.addEventListener(ev, (e) => e.preventDefault()));
   pages.addEventListener("gestureend", (e) => { e.preventDefault(); setZoom(zoom * e.scale); });
@@ -376,16 +383,25 @@ async function setZoom(z, cx, cy) {
   // swipe from left edge to go back
   let sx = null;
   pages.addEventListener("touchstart", (e) => { sx = e.touches.length === 1 && e.touches[0].clientX < 24 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, { passive: true });
-  pages.addEventListener("touchend", (e) => { if (sx) { const t = e.changedTouches[0]; if (t.clientX - sx[0] > 80 && Math.abs(t.clientY - sx[1]) < 60) history.back(); sx = null; } });
+  pages.addEventListener("touchcancel", () => { sx = null; }, { passive: true });
+  pages.addEventListener("touchend", (e) => { if (sx) { const t = e.changedTouches[0]; if (t.clientX - sx[0] > 80 && Math.abs(t.clientY - sx[1]) < 60) history.back(); sx = null; } }, { passive: true });
 })();
 
 // Visited-locations map (private storage; only after login)
 const MAP_INJECT = `<style id="iv-map-fit">html,body{width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important}
-.leaflet-container{width:100%!important;height:100%!important;touch-action:pan-x pan-y;}
+.leaflet-container{width:100%!important;height:100%!important;touch-action:none!important;overscroll-behavior:contain}
 [id^="map_"]{width:100%!important;height:100%!important;}</style>`;
 let mapBlobUrl = null;
 function revokeMapBlob() {
   if (mapBlobUrl) { URL.revokeObjectURL(mapBlobUrl); mapBlobUrl = null; }
+}
+// Swap in a fresh iframe instead of changing srcdoc in place: changing srcdoc on a live
+// iframe adds history entries, so Back (and the edge swipe) got trapped inside the hidden map.
+function freshMapFrame(html) {
+  const old = $("mapFrame"), f = document.createElement("iframe");
+  for (const a of ["id", "title", "sandbox", "referrerpolicy"]) f.setAttribute(a, old.getAttribute(a));
+  f.hidden = true; if (html != null) f.srcdoc = html;
+  old.replaceWith(f); return f;
 }
 function showMapUi(which) {
   $("mapStatus").hidden = which !== "status";
@@ -393,11 +409,11 @@ function showMapUi(which) {
   $("mapImg").hidden = which !== "img";
 }
 async function openMap(push = true) {
-  $("list").hidden = true; $("viewer").hidden = true; $("mapview").hidden = false;
+  saveListY(); $("list").hidden = true; $("viewer").hidden = true; $("mapview").hidden = false;
   if (push) history.pushState({ map: true }, "", "#map");
   showMapUi("status"); $("mapStatus").textContent = "Loading map…";
   revokeMapBlob();
-  $("mapFrame").removeAttribute("src"); $("mapFrame").srcdoc = "";
+  freshMapFrame();
   $("mapImg").removeAttribute("src");
   try {
     let html = await api.mapHtml();
@@ -406,7 +422,8 @@ async function openMap(push = true) {
     if (html.includes("</head>")) html = html.replace("</head>", MAP_INJECT + "</head>");
     else html = MAP_INJECT + html;
     // Prefer srcdoc so text/plain storage still renders as HTML; allow-scripts for Leaflet
-    $("mapFrame").srcdoc = html;
+    if ($("mapview").hidden) return; // closed while loading
+    freshMapFrame(html);
     showMapUi("frame");
     // Give Leaflet a moment; if iframe errors, fall back below via timeout check is hard, rely on catch for fetch
   } catch (e) {
@@ -424,9 +441,9 @@ async function openMap(push = true) {
   }
 }
 function closeMap() {
-  $("mapview").hidden = true; $("list").hidden = false;
+  $("mapview").hidden = true; $("list").hidden = false; restoreListY();
   revokeMapBlob();
-  $("mapFrame").srcdoc = ""; $("mapFrame").removeAttribute("src");
+  freshMapFrame();
   $("mapImg").removeAttribute("src");
   showMapUi("status");
 }
@@ -436,7 +453,7 @@ function leaveMap() {
     history.replaceState(null, "", location.pathname + location.search);
   }
 }
-function closeViewer() { $("viewer").hidden = true; $("list").hidden = false; current = null; pdfDoc?.destroy(); pdfDoc = null; renderTok++; }
+function closeViewer() { $("viewer").hidden = true; $("viewer").classList.remove("pdf"); $("list").hidden = false; current = null; pdfDoc?.destroy(); pdfDoc = null; renderTok++; restoreListY(); }
 $("back").onclick = () => (history.state?.id ? history.back() : (history.replaceState(null, "", location.pathname + location.search), closeViewer()));
 $("mapBack").onclick = $("mapClose").onclick = () => leaveMap();
 $("mapBtn").onclick = () => openMap(true);
@@ -495,4 +512,21 @@ start();
 if (api.needsLogin) { const lo = $("logout"); lo.hidden = false; lo.onclick = async () => { await api.logout(); location.replace(location.pathname); }; }
 (() => { const s = $("stops"); let sx = null;
   s.addEventListener("touchstart", (e) => { sx = e.touches.length === 1 && e.touches[0].clientX < 24 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, { passive: true });
-  s.addEventListener("touchend", (e) => { if (sx) { const t = e.changedTouches[0]; if (t.clientX - sx[0] > 80 && Math.abs(t.clientY - sx[1]) < 60) history.back(); sx = null; } }); })();
+  s.addEventListener("touchcancel", () => { sx = null; }, { passive: true });
+  s.addEventListener("touchend", (e) => { if (sx) { const t = e.changedTouches[0]; if (t.clientX - sx[0] > 80 && Math.abs(t.clientY - sx[1]) < 60) history.back(); sx = null; } }, { passive: true }); })();
+
+// Scroll safety net (v9). Home Screen apps resume from background with stale touch and
+// layout state; re-sync every time the app comes back, rotates, or the keyboard closes.
+function setHdr() { const b = document.querySelector(".screen:not([hidden]) .bar"); if (b) document.documentElement.style.setProperty("--hdr", b.offsetHeight + "px"); }
+function unstickScroll() {
+  for (const e of [document.documentElement, document.body]) { e.style.overflow = ""; e.style.position = ""; e.style.top = ""; e.style.height = ""; e.style.touchAction = ""; }
+  $("pages")._pinchReset?.();
+  if ($("viewer").hidden) $("viewer").classList.remove("pdf");
+  setHdr();
+}
+window.addEventListener("pageshow", unstickScroll);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) unstickScroll(); });
+window.addEventListener("resize", setHdr, { passive: true });
+window.addEventListener("orientationchange", () => setTimeout(unstickScroll, 300));
+document.addEventListener("focusout", (e) => { if (e.target.matches?.("input,textarea,select")) setTimeout(() => { if (!document.activeElement?.matches?.("input,textarea,select")) unstickScroll(); }, 50); });
+unstickScroll();
